@@ -229,10 +229,6 @@ It recreates the account-related tables and therefore should **not be executed a
 - [ ] Job creation
 - [ ] Freelancer applications
 - [ ] Project lifecycle
-- [ ] Escrow workflow
-- [ ] Controlled fund release
-- [ ] Production deployment
-- [ ] Web3/on-chain escrow
 
 ## Inspiration
 
