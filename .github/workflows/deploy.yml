@@ -28,13 +28,7 @@ jobs:
 
       - name: Run tests
         run: go test ./...
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
+        
       - name: Show OIDC claim metadata
         run: |
           TOKEN="$(curl -sSL \
@@ -55,6 +49,13 @@ jobs:
               event_name: claims.event_name
             }, null, 2));
           ' "$TOKEN"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
 
       - name: Sign in to Amazon ECR
         id: login-ecr
