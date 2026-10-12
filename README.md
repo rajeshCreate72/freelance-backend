@@ -167,9 +167,6 @@ DB_PASSWORD=your_password
 DB_NAME=
 JWT_SECRET=your_jwt_secret
 ```
-
-`.env` should **never be committed to Git**.
-
 ## Running Locally
 
 ### 1. Clone the repository
