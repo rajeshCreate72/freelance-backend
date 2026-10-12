@@ -160,12 +160,11 @@ Successful authentication returns a JWT access token.
 Create a `.env` file locally:
 
 ```env
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=freelance_app
+DB_HOST=
+DB_PORT=
+DB_USER=
 DB_PASSWORD=your_password
-DB_NAME=freelance_dev
-
+DB_NAME=
 JWT_SECRET=your_jwt_secret
 ```
 
