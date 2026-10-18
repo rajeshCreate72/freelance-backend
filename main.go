@@ -11,10 +11,9 @@ import (
 )
 
 func main() {
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env")
-	}
+	// Loads .env only when it exists locally.
+	// On Render, environment variables come from the Render dashboard.
+	_ = godotenv.Load()
 
 	conn, err := db.Connect()
 	if err != nil {
@@ -41,8 +40,14 @@ func main() {
 		handlers.Login(conn, []byte(os.Getenv("JWT_SECRET"))),
 	)
 
-	// Connection to database
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("Server listening on port %s", port)
+
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal(err)
 	}
 }
