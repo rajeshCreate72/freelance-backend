@@ -21,11 +21,31 @@ import (
 )
 
 // Connect initializes and returns a pool of database connections (*sql.DB).
+// Connecting to render - deployment service
 // It dynamically supports both standard password authentication and AWS IAM database token authentication.
-// 1. Building postgres connection url. 
+// 1. Building postgres connection url.
 // 2. Connection to database in aws or local-database according to .env
 // 3. verifying connection
 func Connect() (*sql.DB, error) {
+	// Connecting to render deployment service
+	if databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL")); databaseURL != "" {
+		connConfig, err := pgx.ParseConfig(databaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
+		}
+
+		db := stdlib.OpenDB(*connConfig)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := db.PingContext(ctx); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("ping PostgreSQL: %w", err)
+		}
+
+		return db, nil
+	}
 	// --- 1. FETCH MANDATORY ENVIRONMENT VARIABLES ---
 	// Retrieve basic database endpoint details. Error out if any are missing.
 	host, err := requiredEnv("DB_HOST")
