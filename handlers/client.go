@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"freelance-backend/db"
+	"freelance-backend/middleware"
 	"net/http"
 	"net/mail"
 	"strings"
@@ -85,5 +86,42 @@ func RegisterClient(conn *sql.DB) http.HandlerFunc {
 		json.NewEncoder(w).Encode(map[string]string{
 			"message": "Client data created successfully",
 		})
+	}
+}
+
+// GetClientMe returns the profile belonging to the authenticated client.
+func GetClientMe(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// The middleware from main already verifies JWT
+		role, ok := middleware.Role(r)
+		if !ok || role != "client" {
+			http.Error(w, "Clients only", http.StatusForbidden)
+			return
+		}
+
+		// Get the client ID from the verified token context.
+		clientID, ok := middleware.AccountID(r)
+		if !ok {
+			http.Error(w, "Not authenticated", http.StatusUnauthorized)
+			return
+		}
+
+		// Find this client's profile in PostgreSQL.
+		profile, err := db.GetClientByID(r.Context(), conn, clientID)
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Client profile not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, "Failed to retrive client profile", http.StatusInternalServerError) 
+			return
+		}
+
+		// Return the profile as JSON
+		w.Header().Set("Content-type", "application/json")
+		if err := json.NewEncoder(w).Encode(profile); err != nil {
+			return
+		}
+
 	}
 }

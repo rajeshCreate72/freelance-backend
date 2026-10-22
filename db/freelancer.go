@@ -3,7 +3,16 @@ package db
 import (
 	"context"
 	"database/sql"
+	"time"
 )
+
+
+type FreelancerProfile struct {
+	ID string `json:"id"`
+	Username string `json:"username"`
+	Email string `json:"email"`
+	CreatedAt time.Time `json:"created_at"`
+}
 
 func CreateFreelancer(
 	conn *sql.DB,
@@ -59,4 +68,32 @@ func CreateFreelancer(
 	}
 
 	return tx.Commit()
+}
+
+// GetFreelanceByID finds a freelancer by the ID stored in the JWT.
+func GetFreelanceByID(
+	ctx context.Context,
+	conn *sql.DB,
+	freelacerID string,
+) (FreelancerProfile, error) {
+	const query = `
+		SELECT f.id::text, f.username, e.email, f.created_at
+		FROM freelancers f
+		JOIN emails e ON e.id = f.email_id
+		WHERE f.id = $1
+	`
+
+	var profile FreelancerProfile
+
+	err := conn.QueryRowContext(ctx, query, freelacerID).Scan(
+		&profile.ID,
+		&profile.Username,
+		&profile.Email,
+		&profile.CreatedAt,
+	)
+	if err != nil {
+		return FreelancerProfile{}, err
+	}
+
+	return profile, nil
 }
