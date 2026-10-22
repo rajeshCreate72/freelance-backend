@@ -197,7 +197,7 @@ func ListClientReviews(
 		reviews = append(reviews, review)
 	}
 
-	if err := rows.Close(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
