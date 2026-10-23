@@ -1,4 +1,4 @@
-name: Build and push Docker image to ECR
+name: Build, push, and deploy to ECS
 
 on:
   push:
@@ -12,9 +12,13 @@ permissions:
 env:
   AWS_REGION: ap-south-1
   ECR_REPOSITORY: freelance/backend_repo
+  ECS_CLUSTER: freelance-backend-dev
+  ECS_SERVICE: freelance-backend-service
+  ECS_TASK_DEFINITION: freelance-backend-dev
+  ECS_CONTAINER_NAME: freelance-backend
 
 jobs:
-  build-and-push:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -35,7 +39,6 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-
       - name: Sign in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
@@ -45,5 +48,52 @@ jobs:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
-          docker push "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          image_uri="$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker build -t "$image_uri" .
+          docker push "$image_uri"
+          echo "IMAGE_URI=$image_uri" >> "$GITHUB_ENV"
+
+      - name: Create task revision and deploy to ECS
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "$ECS_TASK_DEFINITION" \
+            --query 'taskDefinition' \
+            --output json > task-definition.json
+
+          if ! jq -e --arg name "$ECS_CONTAINER_NAME" \
+            '.containerDefinitions | any(.[]; .name == $name)' \
+            task-definition.json >/dev/null; then
+            echo "Container '$ECS_CONTAINER_NAME' was not found in the task definition." >&2
+            exit 1
+          fi
+
+          jq --arg name "$ECS_CONTAINER_NAME" --arg image "$IMAGE_URI" '
+            .containerDefinitions |= map(
+              if .name == $name then .image = $image else . end
+            )
+            | del(
+                .taskDefinitionArn,
+                .revision,
+                .status,
+                .requiresAttributes,
+                .compatibilities,
+                .registeredAt,
+                .registeredBy,
+                .deregisteredAt,
+                .tags
+              )
+          ' task-definition.json > task-definition-to-register.json
+
+          new_task_definition_arn=$(aws ecs register-task-definition \
+            --cli-input-json file://task-definition-to-register.json \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --task-definition "$new_task_definition_arn"
+
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"

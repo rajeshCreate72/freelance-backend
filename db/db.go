@@ -151,6 +151,9 @@ func Connect() (*sql.DB, error) {
 					return fmt.Errorf("generate Aurora IAM authentication token: %w", err)
 				}
 
+				// Aurora's Internet access gateway expects a slash before the token query string.
+				token = strings.Replace(token, ":"+port+"?", ":"+port+"/?", 1)
+
 				// Inject the generated token into the password field for this connection attempt
 				cfg.Password = token
 				return nil
