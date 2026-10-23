@@ -15,7 +15,7 @@ env:
   ECS_CLUSTER: freelance-backend-dev
   ECS_SERVICE: freelance-backend-service
   ECS_TASK_DEFINITION: freelance-backend-dev
-  ECS_CONTAINER_NAME: freelance-backend
+  ECS_CONTAINER_NAME: Main
 
 jobs:
   build-and-deploy:
