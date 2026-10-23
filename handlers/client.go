@@ -6,6 +6,7 @@ import (
 	"errors"
 	"freelance-backend/db"
 	"freelance-backend/middleware"
+	"log"
 	"net/http"
 	"net/mail"
 	"strings"
@@ -70,6 +71,7 @@ func RegisterClient(conn *sql.DB) http.HandlerFunc {
 			string(passwordHash),
 		)
 		if err != nil {
+			log.Printf("CreateClient failed: %v", err)
 			if errors.Is(err, db.ErrEmailAlreadyRegistered) {
 				http.Error(w, "Email already registered", http.StatusConflict)
 				return
