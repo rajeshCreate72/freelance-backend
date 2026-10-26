@@ -68,7 +68,7 @@ func GetClientByID(ctx context.Context, conn *sql.DB, clientID string) (ClientPr
 	const query = `
 		SELECT c.id::text, c.username, e.email, c.created_at
 		FROM clients c
-		JOIN email e ON e.id = c.email_id
+		JOIN emails e ON e.id = c.email_id
 		WHERE c.id = $1
 	`
 	var profile ClientProfile

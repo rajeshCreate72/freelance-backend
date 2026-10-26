@@ -18,6 +18,7 @@ freelance-backend
 # IDE/editor files
 .vscode/
 .idea/
+generate-token.sh
 
 # OS files
 .DS_Store
