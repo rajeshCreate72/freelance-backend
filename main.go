@@ -26,6 +26,11 @@ func main() {
 
 	auth := middleware.Authenticate([]byte(os.Getenv("JWT_SECRET")))
 
+	frontendOrigin := os.Getenv("FRONTEND_ORIGINS")
+	if frontendOrigin == "" {
+		log.Fatal("FRONTEND_ORIGINS are required")
+	}
+
 	// POST Client registration
 	http.HandleFunc(
 		"POST /clients",
@@ -118,7 +123,10 @@ func main() {
 
 	log.Printf("Server listening on port %s", port)
 
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	if err := http.ListenAndServe(
+		":"+port,
+		middleware.CORS(frontendOrigin, http.DefaultServeMux),
+	); err !=  nil {
 		log.Fatal(err)
 	}
 }
