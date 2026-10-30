@@ -65,6 +65,11 @@ func main() {
 		handlers.ListClientReviews(conn),
 	)
 
+	http.HandleFunc(
+		"POST /refresh",
+		handlers.Refresh(conn, []byte(os.Getenv("JWT_SECRET"))),
+	)
+
 	// PROTECTED ROUTES
 	http.Handle(
 		"GET /clients/me",

@@ -22,6 +22,8 @@ var (
 	ErrReviewAlreadySubmitted  = errors.New("review already submitted for this job")
 )
 
+var ErrInvalidRefreshToken = errors.New("invalid or expired refresh token")
+
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	
