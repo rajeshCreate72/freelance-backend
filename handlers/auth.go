@@ -201,7 +201,7 @@ func createAccessToken(
 	}
 
 	now := time.Now()
-	expiresAt := now.Add(15 * time.Minute)
+	expiresAt := now.Add(1 * time.Minute)
 
 	claims := LoginClaims{
 		Role: role,
