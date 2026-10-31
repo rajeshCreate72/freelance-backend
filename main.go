@@ -12,32 +12,39 @@ import (
 )
 
 func main() {
-	// Loads .env only when it exists locally.
-	// On Render, environment variables come from the Render dashboard.
+	// Load .env when running locally.
+	// Production environment variables are configured on Render.
 	_ = godotenv.Load()
 
 	conn, err := db.Connect()
 	if err != nil {
-		log.Fatal("Database conncection failed: ", err)
+		log.Fatal("Database connection failed: ", err)
 	}
 	defer conn.Close()
 
 	log.Println("Connected to PostgreSQL")
 
-	auth := middleware.Authenticate([]byte(os.Getenv("JWT_SECRET")))
+	jwtSecret := []byte(os.Getenv("JWT_SECRET"))
+	if len(jwtSecret) == 0 {
+		log.Fatal("JWT_SECRET is required")
+	}
 
 	frontendOrigin := os.Getenv("FRONTEND_ORIGINS")
 	if frontendOrigin == "" {
 		log.Fatal("FRONTEND_ORIGINS are required")
 	}
 
-	// POST Client registration
+	// Middleware
+	auth := middleware.Authenticate(jwtSecret)
+
+	// Public routes
+	// These routes do not require authentication.
+
 	http.HandleFunc(
 		"POST /clients",
 		handlers.RegisterClient(conn),
 	)
 
-	// POST Freelancer registration
 	http.HandleFunc(
 		"POST /freelancers",
 		handlers.RegisterFreelancer(conn),
@@ -45,7 +52,12 @@ func main() {
 
 	http.HandleFunc(
 		"POST /login",
-		handlers.Login(conn, []byte(os.Getenv("JWT_SECRET"))),
+		handlers.Login(conn, jwtSecret),
+	)
+
+	http.HandleFunc(
+		"POST /refresh",
+		handlers.Refresh(conn, jwtSecret),
 	)
 
 	http.HandleFunc(
@@ -53,7 +65,10 @@ func main() {
 		handlers.ListJobs(conn),
 	)
 
-	http.HandleFunc("GET /jobs/{id}", handlers.GetJob(conn))
+	http.HandleFunc(
+		"GET /jobs/{id}",
+		handlers.GetJob(conn),
+	)
 
 	http.HandleFunc(
 		"GET /freelancers/{freelancer_id}/reviews",
@@ -65,62 +80,66 @@ func main() {
 		handlers.ListClientReviews(conn),
 	)
 
-	http.HandleFunc(
-		"POST /refresh",
-		handlers.Refresh(conn, []byte(os.Getenv("JWT_SECRET"))),
-	)
+	// Client routes
+	// Authentication is required.
+	// Role authorization should also require the "client" role.
 
-	// PROTECTED ROUTES
 	http.Handle(
 		"GET /clients/me",
-		auth(handlers.GetClientMe(conn)),
-	)
-
-	http.Handle(
-		"GET /freelancer/me",
-		auth(handlers.GetFreelancerMe(conn)),
-	)
-
-	http.Handle(
-		"POST /jobs",
-		auth(handlers.CreateJob(conn)),
-	)
-
-	http.Handle(
-		"POST /jobs/{job_id}/applications",
-		auth(handlers.ApplyToJob(conn)),
-	)
-
-	http.Handle(
-		"GET /jobs/{job_id}/applications",
-		auth(handlers.ListJobApplications(conn)),
-	)
-
-	http.Handle(
-		"GET /freelancers/me/applications",
-		auth(handlers.ListMyApplications(conn)),
+		auth(middleware.RequireRole("client")(handlers.GetClientMe(conn))),
 	)
 
 	http.Handle(
 		"GET /clients/me/jobs",
-		auth(handlers.ListMyJobs(conn)),
+		auth(middleware.RequireRole("client")(handlers.ListMyJobs(conn))),
+	)
+
+	http.Handle(
+		"POST /jobs",
+		auth(middleware.RequireRole("client")(handlers.CreateJob(conn))),
 	)
 
 	http.Handle(
 		"POST /jobs/{job_id}/assignments",
-		auth(handlers.AssignFreelancer(conn)),
+		auth(middleware.RequireRole("client")(handlers.AssignFreelancer(conn))),
 	)
 
 	http.Handle(
-		"POST /jobs/{job_id}/assignment/accept",
-		auth(handlers.AcceptAssignment(conn)),
+		"GET /jobs/{job_id}/applications",
+		auth(middleware.RequireRole("client")(handlers.ListJobApplications(conn))),
 	)
 
+	// Belongs to both client and freelancer
 	http.Handle(
 		"POST /jobs/{job_id}/reviews",
 		auth(handlers.CreateReview(conn)),
 	)
 
+	// Freelancer routes
+	// Authentication is required.
+	// Role authorization should also require the "freelancer" role.
+
+	http.Handle(
+		"GET /freelancer/me",
+		auth(middleware.RequireRole("freelancer")(handlers.GetFreelancerMe(conn))),
+	)
+
+	http.Handle(
+		"GET /freelancers/me/applications",
+		auth(middleware.RequireRole("freelancer")(handlers.ListMyApplications(conn))),
+	)
+
+	http.Handle(
+		"POST /jobs/{job_id}/applications",
+		auth(middleware.RequireRole("freelancer")(handlers.ApplyToJob(conn))),
+	)
+
+	http.Handle(
+		"POST /jobs/{job_id}/assignment/accept",
+		auth(middleware.RequireRole("freelancer")(handlers.AcceptAssignment(conn))),
+	)
+
+	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -131,7 +150,7 @@ func main() {
 	if err := http.ListenAndServe(
 		":"+port,
 		middleware.CORS(frontendOrigin, http.DefaultServeMux),
-	); err !=  nil {
+	); err != nil {
 		log.Fatal(err)
 	}
 }
