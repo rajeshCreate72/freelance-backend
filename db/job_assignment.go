@@ -71,6 +71,7 @@ func AssignFreelancer(
 	).Scan(
 		&assignment.JobID,
 		&assignment.FreelancerID,
+		&assignment.Status,
 		&assignment.UpdatedAt,
 	)
 	if err != nil {
@@ -124,9 +125,10 @@ func AcceptAssignment(
 	).Scan(
 		&assignment.JobID,
 		&assignment.FreelancerID,
+		&assignment.Status,
 		&assignment.UpdatedAt,
 	)
-	if err != sql.ErrNoRows {
+	if err == sql.ErrNoRows {
 		return Assignment{}, ErrAssignmentNotPending
 	}
 	if err != nil {

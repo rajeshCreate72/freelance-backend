@@ -161,7 +161,7 @@ func ApplyToJob(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		w.Header().Set("Content-type", "applicaton/json")
+		w.Header().Set("Content-type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(application)
 	}
