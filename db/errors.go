@@ -2,6 +2,7 @@ package db
 
 import (
 	"errors"
+
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -23,6 +24,8 @@ var (
 )
 
 var ErrInvalidRefreshToken = errors.New("invalid or expired refresh token")
+
+var ErrInvalidWalletNonce = errors.New("invalid, expired, or already used wallet nonce")
 
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError

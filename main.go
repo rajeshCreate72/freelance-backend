@@ -80,6 +80,13 @@ func main() {
 		handlers.ListClientReviews(conn),
 	)
 
+	// Routes for both client and freelancers
+	// Authentication required
+	http.Handle(
+		"POST /wallet/nonce",
+		auth(handlers.CreateWalletNonce(conn)),
+	)
+
 	// Client routes
 	// Authentication is required.
 	// Role authorization should also require the "client" role.

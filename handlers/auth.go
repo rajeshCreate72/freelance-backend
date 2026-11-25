@@ -119,6 +119,7 @@ func Login(conn *sql.DB, jwtSecret []byte) http.HandlerFunc {
 			"token_type":    "Bearer",
 			"expires_in":    int(time.Until(accessExpiresAt).Seconds()),
 			"refresh_token": refreshToken,
+			"role": account.Role,
 		}); err != nil {
 			log.Println("Write login response error:", err)
 		}
@@ -185,6 +186,7 @@ func Refresh(conn *sql.DB, jwtSecrect []byte) http.HandlerFunc {
 			"token_type": "Bearer",
 			"expires_in": int(time.Until(accessExpiresAt).Seconds()),
 			"refresh_token": newRefreshToken,
+			"role": role,
 		})
 	}
 }
