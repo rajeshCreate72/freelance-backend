@@ -1,4 +1,4 @@
--- Account roles used by emails, reviews, and refresh tokens.
+-- Account roles used by emails, reviews, refresh tokens, and wallet nonces.
 DO $$
 BEGIN
     CREATE TYPE user_role AS ENUM ('client', 'freelancer');
@@ -37,8 +37,10 @@ CREATE TABLE IF NOT EXISTS freelancers (
 
 
 -- Jobs belong to the client who created them.
+-- id is the backend UUID; solana_job_id is the generated Solana u64 value.
 CREATE TABLE IF NOT EXISTS jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    solana_job_id BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
     client_id UUID NOT NULL REFERENCES clients(id),
     title VARCHAR(200) NOT NULL,
     description TEXT NOT NULL,
@@ -78,8 +80,6 @@ CREATE TABLE IF NOT EXISTS job_assignments (
 );
 
 
--- A review is written after a job has an accepted assignment.
--- The reviewer is determined from the job and assignment in the queries.
 -- Each side can submit one review per job.
 CREATE TABLE IF NOT EXISTS reviews (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -93,8 +93,7 @@ CREATE TABLE IF NOT EXISTS reviews (
 );
 
 
--- Refresh-token hashes are stored here; the raw token is returned to the client.
--- account_id has no foreign key because clients and freelancers have separate tables.
+-- Store refresh-token hashes, not the raw tokens.
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     token_hash TEXT PRIMARY KEY,
     account_id UUID NOT NULL,
@@ -104,28 +103,21 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     revoked_at TIMESTAMPTZ
 );
 
+
+-- Wallet connection challenges for authenticated accounts.
 CREATE TABLE IF NOT EXISTS wallet_nonces (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
     account_id UUID NOT NULL,
     role user_role NOT NULL,
-
+    wallet_address TEXT NOT NULL,
     nonce TEXT NOT NULL UNIQUE,
-
     expires_at TIMESTAMPTZ NOT NULL,
     consumed_at TIMESTAMPTZ,
-
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_wallet_nonces_account
-    ON wallet_nonces (account_id, role);
 
-CREATE INDEX IF NOT EXISTS idx_wallet_nonces_expires_at
-    ON wallet_nonces (expires_at);
-
-
--- Extra indexes for the list and lookup queries used by the API.
+-- Extra indexes for the API's list and lookup queries.
 CREATE INDEX IF NOT EXISTS idx_jobs_created_at
     ON jobs (created_at DESC);
 
@@ -143,3 +135,9 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_account_id
 
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at
     ON refresh_tokens (expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_wallet_nonces_account
+    ON wallet_nonces (account_id, role);
+
+CREATE INDEX IF NOT EXISTS idx_wallet_nonces_expires_at
+    ON wallet_nonces (expires_at);

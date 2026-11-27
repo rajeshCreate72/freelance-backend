@@ -3,16 +3,21 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"strconv"
 	"time"
 )
 
-
 type Job struct {
-	ID          string    `json:"id"`
-	ClientID    string    `json:"client_id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID                   string    `json:"id"`
+	SolanaJobID          string    `json:"solana_job_id"`
+	ClientID             string    `json:"client_id"`
+	Title                string    `json:"title"`
+	Description          string    `json:"description"`
+	BudgetLamports       string    `json:"budget_lamports"`
+	FundedAmountLamports string    `json:"funded_amount_lamports"`
+	Funded               bool      `json:"funded"`
+	CreatedAt            time.Time `json:"created_at"`
 }
 
 type Application struct {
@@ -22,7 +27,7 @@ type Application struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// JobApplication contains application details shown to the job's owner.
+// JobApplication contains applicant details shown to the job's owner.
 type JobApplication struct {
 	ID                 string    `json:"id"`
 	JobID              string    `json:"job_id"`
@@ -32,11 +37,13 @@ type JobApplication struct {
 }
 
 type FreelancerApplication struct {
-	ID          string    `json:"id"`
-	JobID       string    `json:"job_id"`
-	JobTitle    string    `json:"job_title"`
-	Description string    `json:"description"`
-	AppliedAt   time.Time `json:"applied_at"`
+	ID             string    `json:"id"`
+	JobID          string    `json:"job_id"`
+	JobTitle       string    `json:"job_title"`
+	Description    string    `json:"description"`
+	BudgetLamports string    `json:"budget_lamports"`
+	Funded         bool      `json:"funded"`
+	AppliedAt      time.Time `json:"applied_at"`
 }
 
 func CreateJob(
@@ -45,23 +52,36 @@ func CreateJob(
 	clientID string,
 	title string,
 	description string,
+	budgetLamports int64,
 ) (Job, error) {
-	const query = `
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return Job{}, err
+	}
+	defer tx.Rollback()
+
+	const insertJob = `
 		INSERT INTO jobs (client_id, title, description)
 		VALUES ($1, $2, $3)
-		RETURNING id::text, client_id::text, title, description, created_at
+		RETURNING
+			id::text,
+			solana_job_id::text,
+			client_id::text,
+			title,
+			description,
+			created_at
 	`
 
 	var job Job
-
-	err := conn.QueryRowContext(
+	err = tx.QueryRowContext(
 		ctx,
-		query, 
+		insertJob,
 		clientID,
 		title,
 		description,
 	).Scan(
 		&job.ID,
+		&job.SolanaJobID,
 		&job.ClientID,
 		&job.Title,
 		&job.Description,
@@ -71,15 +91,53 @@ func CreateJob(
 		return Job{}, err
 	}
 
+	// Create the budget row now. NULL means escrow funds have not arrived yet.
+	const insertEscrowBudget = `
+		INSERT INTO job_escrows (
+			job_id,
+			budget_lamports,
+			funded_amount_lamports
+		)
+		VALUES ($1, $2, NULL)
+	`
+
+	_, err = tx.ExecContext(
+		ctx,
+		insertEscrowBudget,
+		job.ID,
+		budgetLamports,
+	)
+	if err != nil {
+		return Job{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Job{}, err
+	}
+
+	job.BudgetLamports = strconv.FormatInt(budgetLamports, 10)
+	job.FundedAmountLamports = ""
+	job.Funded = false
+
 	return job, nil
 }
 
-// ListJobs retrives all jobs, newest first
+// ListJobs returns all jobs, newest first.
 func ListJobs(ctx context.Context, conn *sql.DB) ([]Job, error) {
 	const query = `
-		SELECT id::text, client_id::text, title, description, created_at
-		FROM jobs
-		ORDER BY created_at DESC
+		SELECT
+			j.id::text,
+			j.solana_job_id::text,
+			j.client_id::text,
+			j.title,
+			j.description,
+			j.budget_lamports::text,
+			COALESCE(e.funded_amount_lamports::text, ''),
+			(e.job_id IS NOT NULL),
+			j.created_at
+		FROM jobs j
+		LEFT JOIN job_escrows e ON e.job_id = j.id
+		ORDER BY j.created_at DESC
 	`
 
 	rows, err := conn.QueryContext(ctx, query)
@@ -88,20 +146,22 @@ func ListJobs(ctx context.Context, conn *sql.DB) ([]Job, error) {
 	}
 	defer rows.Close()
 
-	// start with empty array of jobs returns[] rather than null
 	jobs := make([]Job, 0)
 
 	for rows.Next() {
 		var job Job
 
-		err := rows.Scan(
+		if err := rows.Scan(
 			&job.ID,
+			&job.SolanaJobID,
 			&job.ClientID,
 			&job.Title,
 			&job.Description,
+			&job.BudgetLamports,
+			&job.FundedAmountLamports,
+			&job.Funded,
 			&job.CreatedAt,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
 
@@ -115,25 +175,38 @@ func ListJobs(ctx context.Context, conn *sql.DB) ([]Job, error) {
 	return jobs, nil
 }
 
-// GetJobByID finds one job using its ID
+// GetJobByID finds one job using its backend UUID.
 func GetJobByID(
 	ctx context.Context,
 	conn *sql.DB,
 	jobID string,
 ) (Job, error) {
 	const query = `
-		SELECT id::text, client_id::text, title, description, created_at
-		FROM jobs
-		WHERE id = $1
+		SELECT
+			j.id::text,
+			j.solana_job_id::text,
+			j.client_id::text,
+			j.title,
+			j.description,
+			j.budget_lamports::text,
+			COALESCE(e.funded_amount_lamports::text, ''),
+			(e.job_id IS NOT NULL),
+			j.created_at
+		FROM jobs j
+		LEFT JOIN job_escrows e ON e.job_id = j.id
+		WHERE j.id = $1
 	`
 
 	var job Job
-
 	err := conn.QueryRowContext(ctx, query, jobID).Scan(
 		&job.ID,
+		&job.SolanaJobID,
 		&job.ClientID,
 		&job.Title,
 		&job.Description,
+		&job.BudgetLamports,
+		&job.FundedAmountLamports,
+		&job.Funded,
 		&job.CreatedAt,
 	)
 	if err != nil {
@@ -167,8 +240,8 @@ func CreateApplication(
 		VALUES ($1, $2)
 		RETURNING id::text, job_id::text, freelancer_id::text, created_at
 	`
-	var application Application
 
+	var application Application
 	err = conn.QueryRowContext(
 		ctx,
 		query,
@@ -190,7 +263,7 @@ func CreateApplication(
 	return application, nil
 }
 
-// ListApplicationsForClientJob returns applicants/freelancers only if the client owns the job.
+// ListApplicationsForClientJob returns applicants only if the client owns the job.
 // It returns ErrJobNotFound when the job doesn't exist or belongs to another client.
 func ListApplicationsForClientJob(
 	ctx context.Context,
@@ -198,7 +271,7 @@ func ListApplicationsForClientJob(
 	jobID string,
 	clientID string,
 ) ([]JobApplication, error) {
-	var ClientOwnsJob bool
+	var clientOwnsJob bool
 
 	err := conn.QueryRowContext(
 		ctx,
@@ -207,17 +280,21 @@ func ListApplicationsForClientJob(
 		)`,
 		jobID,
 		clientID,
-	).Scan(&ClientOwnsJob)
+	).Scan(&clientOwnsJob)
 	if err != nil {
 		return nil, err
 	}
-	if !ClientOwnsJob {
+	if !clientOwnsJob {
 		return nil, ErrJobNotFound
 	}
 
 	const query = `
-		SELECT a.id::text, a.job_id::text, a.freelancer_id::text,
-			f.username, a.created_at
+		SELECT
+			a.id::text,
+			a.job_id::text,
+			a.freelancer_id::text,
+			f.username,
+			a.created_at
 		FROM applications a
 		JOIN freelancers f ON f.id = a.freelancer_id
 		WHERE a.job_id = $1
@@ -235,20 +312,19 @@ func ListApplicationsForClientJob(
 	for rows.Next() {
 		var application JobApplication
 
-		err := rows.Scan(
+		if err := rows.Scan(
 			&application.ID,
 			&application.JobID,
 			&application.FreelancerID,
 			&application.FreelancerUsername,
 			&application.CreatedAt,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
 
 		applications = append(applications, application)
 	}
-	
+
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -256,16 +332,24 @@ func ListApplicationsForClientJob(
 	return applications, nil
 }
 
-// ListApplicationsByFreelancer returns jobs a freelancer applied to
+// ListApplicationsByFreelancer returns jobs a freelancer applied to.
 func ListApplicationsByFreelancer(
 	ctx context.Context,
 	conn *sql.DB,
 	freelancerID string,
 ) ([]FreelancerApplication, error) {
 	const query = `
-		SELECT a.id::text, a.job_id::text, j.title, j.description, a.created_at
+		SELECT
+			a.id::text,
+			a.job_id::text,
+			j.title,
+			j.description,
+			j.budget_lamports::text,
+			(e.job_id IS NOT NULL),
+			a.created_at
 		FROM applications a
 		JOIN jobs j ON j.id = a.job_id
+		LEFT JOIN job_escrows e ON e.job_id = j.id
 		WHERE a.freelancer_id = $1
 		ORDER BY a.created_at DESC
 	`
@@ -286,6 +370,8 @@ func ListApplicationsByFreelancer(
 			&application.JobID,
 			&application.JobTitle,
 			&application.Description,
+			&application.BudgetLamports,
+			&application.Funded,
 			&application.AppliedAt,
 		); err != nil {
 			return nil, err
@@ -301,17 +387,27 @@ func ListApplicationsByFreelancer(
 	return applications, nil
 }
 
-// ListJobsByClient returns the jobs created by one client, newest first.
+// ListJobsByClient returns a client's jobs, newest first.
 func ListJobsByClient(
 	ctx context.Context,
 	conn *sql.DB,
 	clientID string,
 ) ([]Job, error) {
 	const query = `
-		SELECT id::text, client_id::text, title, description, created_at
-		FROM jobs
-		WHERE client_id = $1
-		ORDER BY created_at DESC
+		SELECT
+			j.id::text,
+			j.solana_job_id::text,
+			j.client_id::text,
+			j.title,
+			j.description,
+			j.budget_lamports::text,
+			COALESCE(e.funded_amount_lamports::text, ''),
+			(e.job_id IS NOT NULL),
+			j.created_at
+		FROM jobs j
+		LEFT JOIN job_escrows e ON e.job_id = j.id
+		WHERE j.client_id = $1
+		ORDER BY j.created_at DESC
 	`
 
 	rows, err := conn.QueryContext(ctx, query, clientID)
@@ -327,9 +423,13 @@ func ListJobsByClient(
 
 		if err := rows.Scan(
 			&job.ID,
+			&job.SolanaJobID,
 			&job.ClientID,
 			&job.Title,
 			&job.Description,
+			&job.BudgetLamports,
+			&job.FundedAmountLamports,
+			&job.Funded,
 			&job.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -345,3 +445,38 @@ func ListJobsByClient(
 	return jobs, nil
 }
 
+// RecordEscrowFunding should be called only after the transaction has been
+// verified on chain and its amount has been checked against the job budget.
+func RecordEscrowFunding(
+	ctx context.Context,
+	conn *sql.DB,
+	jobID string,
+	fundedAmountLamports int64,
+) error {
+	if fundedAmountLamports <= 0 {
+		return ErrFundedAmountPositive
+	}
+
+	result, err := conn.ExecContext(
+		ctx,
+		`UPDATE job_escrows
+		 SET funded_amount_lamports = $2
+		 WHERE job_id = $1
+		   AND funded_amount_lamports IS NULL`,
+		jobID,
+		fundedAmountLamports,
+	)
+	if err != nil {
+		return err
+	}
+
+	rowsUpdated, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsUpdated != 1 {
+		return fmt.Errorf("job escrow row not found or already funded")
+	}
+
+	return nil
+}

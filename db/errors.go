@@ -27,6 +27,8 @@ var ErrInvalidRefreshToken = errors.New("invalid or expired refresh token")
 
 var ErrInvalidWalletNonce = errors.New("invalid, expired, or already used wallet nonce")
 
+var ErrFundedAmountPositive = errors.New("funded amount must be positive")
+
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	
