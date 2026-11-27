@@ -6,6 +6,7 @@ import (
 	"errors"
 	"freelance-backend/db"
 	"freelance-backend/middleware"
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -79,6 +80,7 @@ func CreateJob(conn *sql.DB) http.HandlerFunc {
 			budgetLamports,
 		)
 		if err != nil {
+			log.Printf("db.CreateJob failed: %v", err)
 			http.Error(w, "Failed to create job", http.StatusInternalServerError)
 			return
 		}
