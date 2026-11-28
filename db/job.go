@@ -61,16 +61,24 @@ func CreateJob(
 	defer tx.Rollback()
 
 	const insertJob = `
-		INSERT INTO jobs (client_id, title, description)
-		VALUES ($1, $2, $3)
+		INSERT INTO jobs (
+			client_id,
+			title,
+			description,
+			budget_lamports
+		)
+		VALUES ($1, $2, $3, $4)
 		RETURNING
 			id::text,
 			solana_job_id::text,
 			client_id::text,
 			title,
 			description,
+			budget_lamports::text,
 			created_at
 	`
+
+
 
 	var job Job
 	err = tx.QueryRowContext(
@@ -79,12 +87,14 @@ func CreateJob(
 		clientID,
 		title,
 		description,
+		budgetLamports,
 	).Scan(
 		&job.ID,
 		&job.SolanaJobID,
 		&job.ClientID,
 		&job.Title,
 		&job.Description,
+		&job.BudgetLamports,
 		&job.CreatedAt,
 	)
 	if err != nil {
